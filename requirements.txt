@@ -1,7 +1,7 @@
 streamlit
 langchain
-langchain-google-genai
+langchain-google-genai>=1.0.3
 langchain-community
-duckduckgo-search
+duckduckgo-search>=6.0.0
 google-generativeai
 pydantic
