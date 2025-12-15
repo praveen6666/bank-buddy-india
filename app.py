@@ -57,23 +57,42 @@ else:
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# --- 4. ROBUST SEARCH ENGINE ---
+# --- 4. ANTI-BLOCK SEARCH ENGINE ---
 def search_web(query):
     """
-    Tries to fetch data. If blocked, returns None (Does NOT crash).
+    Tries 3 different search strategies to bypass blocks.
     """
+    ddgs = DDGS()
+    
+    # Strategy 1: Specific Indian Search (Last Month)
     try:
-        # Try simplified query to avoid blockers
-        results = DDGS().text(f"{query} india interest rates 2025", region='in-en', max_results=4)
-        if results:
-            return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+        results = ddgs.text(f"{query} current interest rates india 2025", region='in-en', max_results=5, timelimit='m')
+        if results: return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
     except:
-        pass # Fail silently, let AI handle it
+        pass
+        
+    # Strategy 2: Global Search (Relaxed constraints)
+    try:
+        time.sleep(1) # Pause to avoid spam detection
+        results = ddgs.text(f"{query} bank interest rates india", max_results=5)
+        if results: return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+    except:
+        pass
+
+    # Strategy 3: News Search (Often unblocked)
+    try:
+        time.sleep(1)
+        results = ddgs.news(f"{query} India Banks", max_results=3)
+        if results: return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+    except:
+        pass
+
     return None
 
 # --- 5. AI ENGINE 1: GOOGLE ---
 def ask_google(prompt, api_key):
     genai.configure(api_key=api_key)
+    # Smart Fallback Models
     models = ["models/gemini-1.5-flash", "models/gemini-1.5-flash-8b", "models/gemini-pro"]
     for model_name in models:
         try:
@@ -88,41 +107,24 @@ def ask_google(prompt, api_key):
 def ask_opensource(prompt, token=None):
     try:
         client = InferenceClient(token=token)
-        response = client.text_generation(prompt, model="mistralai/Mistral-7B-Instruct-v0.3", max_new_tokens=1000)
-        return f"**[Note: Google Busy. Answer via OpenSource]**\n\n{response}"
+        # Using Mistral 7B (Very reliable)
+        response = client.text_generation(prompt, model="mistralai/Mistral-7B-Instruct-v0.3", max_new_tokens=1500)
+        return f"**[Note: Google Busy. Answered by OpenSource AI]**\n\n{response}"
     except:
         return None
 
-# --- 7. HARDCODED SNAPSHOT (LAST RESORT) ---
-def get_static_fallback(query):
-    return """
-    ⚠️ **Live Connection Failed.**
-    
-    However, here is a **Snapshot of Recent Market Rates (Estimates)**:
-    
-    | Rank 🏆 | Bank Name | FD Rate (1 Yr) | Home Loan (Start) | Savings (Up to) |
-    |---|---|---|---|---|
-    | 1 | IDFC First | 7.50% | 8.85% | 7.00% |
-    | 2 | IndusInd | 7.50% | 8.75% | 6.75% |
-    | 3 | Kotak | 7.10% | 8.70% | 4.00% |
-    | 4 | SBI | 6.80% | 8.50% | 2.70% |
-    | 5 | HDFC | 6.60% | 8.50% | 3.00% |
-    | 6 | ICICI | 6.70% | 8.75% | 3.00% |
-    
-    *Please verify directly with the bank as real-time search is currently blocked.*
-    """
-
-# --- 8. MASTER LOGIC ---
+# --- 7. MASTER LOGIC ---
 def get_best_response(user_query, google_key, hf_key):
     
     # 1. Try Search
     search_context = search_web(user_query)
     
-    # 2. Prepare Context
+    # 2. Smart Context Construction
     if search_context:
-        context_msg = f"LIVE WEB DATA:\n{search_context}"
+        context_msg = f"REAL-TIME WEB DATA:\n{search_context}"
     else:
-        context_msg = "WARNING: Web search blocked. Answer based on your INTERNAL KNOWLEDGE of Indian Banks."
+        # CRITICAL FIX: If search fails, we tell AI to use INTERNAL MEMORY, not fail.
+        context_msg = "NOTICE: Real-time search is currently blocked. You MUST use your internal training data (up to late 2024/2025) to provide the best estimated rates."
 
     prompt = f"""
     Act as BankBuddy India.
@@ -131,9 +133,10 @@ def get_best_response(user_query, google_key, hf_key):
     
     TASK:
     1. Rank the banks in a Markdown Table.
-    2. Rank 1 = Best Benefit.
-    3. If web data is missing, ESTIMATE based on general knowledge (SBI~6.8%, IDFC~7.5%).
-    4. Do not say "I cannot answer". Give the best estimate.
+    2. Rank 1 = Best Benefit (High Interest for Savings/FD, Low Interest for Loans).
+    3. Column 1 MUST be "Rank 🏆".
+    4. If Web Data is present, use it.
+    5. If Web Data is missing, ESTIMATE the rates based on major bank standards (e.g. SBI, HDFC standards).
     """
     
     # 3. Try Google
@@ -145,10 +148,18 @@ def get_best_response(user_query, google_key, hf_key):
     res = ask_opensource(prompt, hf_key)
     if res: return res
 
-    # 5. Total Failure -> Show Static Snapshot
-    return get_static_fallback(user_query)
+    # 5. Ultimate Fallback (If NO API keys work)
+    return """
+    ⚠️ **Configuration Error:**
+    
+    I cannot generate a response because:
+    1. **Search is blocked** by the cloud server.
+    2. **No valid API Key** (Google or HuggingFace) provided.
+    
+    *Please enter a Google API Key in the sidebar to activate the AI Brain.*
+    """
 
-# --- 9. UI ---
+# --- 8. UI ---
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
     if not google_key:
@@ -185,8 +196,6 @@ if not st.session_state.chat_history:
     if q:
         st.session_state.chat_history.append({"role": "user", "content": q})
         with st.chat_message("user", avatar="👤"): st.write(q)
-        if not google_key and not hf_token:
-             st.warning("⚠️ For best results, enter an API Key. Using backup mode...")
         
         with st.chat_message("assistant", avatar="🏦"):
             with st.spinner("Analyzing..."):
