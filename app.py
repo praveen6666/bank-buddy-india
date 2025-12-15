@@ -2,7 +2,7 @@ import streamlit as st
 import os
 import time
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage
 
 # --- CONFIGURATION ---
@@ -32,38 +32,46 @@ def get_response(query, api_key):
     if not api_key:
         return "Please enter your API Key in the sidebar."
     
-    # 1. Setup LLM
+    # --- MODEL SELECTION FIX ---
+    # We use 'gemini-1.5-flash-001' (Specific version) or 'gemini-pro' (Stable)
+    # The error happened because generic 'gemini-1.5-flash' alias sometimes fails on free tier
     try:
-        llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key, temperature=0.3)
-    except Exception as e:
-        return f"Error connecting to Google AI: {str(e)}"
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash-001", 
+            google_api_key=api_key, 
+            temperature=0.3
+        )
+    except Exception:
+        # Fallback to the classic Gemini Pro if Flash fails
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-pro", 
+            google_api_key=api_key, 
+            temperature=0.3
+        )
 
-    # 2. Safe Search Execution
+    # --- SAFE SEARCH SETUP ---
     search_data = "Search unavailable (Using internal knowledge)."
     try:
-        # Import inside function to prevent app-wide crash
         from langchain_community.tools import DuckDuckGoSearchResults
         search = DuckDuckGoSearchResults(backend="news")
         search_data = search.run(f"{query} interest rates india official bank sites 2025")
-    except ImportError:
-        print("Library 'duckduckgo-search' missing. Please add it to requirements.txt")
     except Exception as e:
         print(f"Search failed: {e}")
 
-    # 3. Prompt Construction
+    # --- PROMPT ---
     template = """
     You are BankBuddy, an Indian banking expert.
     
     User Question: {input}
     
-    Latest Web Search Data (Use this if available): 
+    Latest Web Search Data: 
     {context}
     
     Instructions:
     1. Compare products in a clean Markdown Table.
     2. Focus on official Indian banks (SBI, HDFC, ICICI, Axis, etc).
     3. Give a specific recommendation at the end.
-    4. If search data is missing, use your general knowledge but mention rates may vary.
+    4. If search data is missing, use your general knowledge.
     """
     
     prompt = ChatPromptTemplate.from_template(template)
@@ -73,7 +81,7 @@ def get_response(query, api_key):
         response = chain.invoke({"input": query, "context": search_data})
         return response.content
     except Exception as e:
-        return f"An error occurred during processing: {str(e)}"
+        return f"Error: {str(e)}. Please try checking your API Key."
 
 # --- UI ---
 st.header("Compare Savings, Loans & FDs 📊")
