@@ -18,14 +18,29 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- API KEY MANAGEMENT (The Fix) ---
+# Check if key is in Secrets (Hidden in Cloud), otherwise ask user
+if "GOOGLE_API_KEY" in st.secrets:
+    api_key = st.secrets["GOOGLE_API_KEY"]
+    has_secret_key = True
+else:
+    has_secret_key = False
+    api_key = None
+
 # --- SIDEBAR ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2830/2830284.png", width=50)
     st.title("BankBuddy India")
-    st.markdown("**Setup**")
-    api_key = st.text_input("Enter Google Gemini API Key", type="password")
+    
+    # Only show input box if NO secret key is found
+    if not has_secret_key:
+        st.markdown("**Setup**")
+        api_key = st.text_input("Enter Google Gemini API Key", type="password")
+        st.markdown("[👉 Get Free API Key](https://aistudio.google.com/app/apikey)")
+    else:
+        st.success("✅ Connected to Bank Server")
+        
     st.markdown("---")
-    st.markdown("[👉 Get Free API Key](https://aistudio.google.com/app/apikey)")
     st.info("I search official bank websites for real-time rates.")
 
 # --- LOGIC ---
@@ -34,7 +49,6 @@ if "chat_history" not in st.session_state:
 
 def search_web(query):
     try:
-        # Search India region (in-en) for last month (m)
         results = DDGS().text(f"{query} interest rates india official bank sites", region='in-en', max_results=5, timelimit='m')
         if results:
             return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
@@ -43,7 +57,6 @@ def search_web(query):
         return None
 
 def get_best_model(api_key):
-    """Finds a working model automatically."""
     try:
         genai.configure(api_key=api_key)
         models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
@@ -58,13 +71,11 @@ def get_gemini_response(user_query, search_context, api_key):
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(model_name)
         
-        # --- FIXED SECTION (Split into multiple lines to prevent syntax errors) ---
         if search_context:
             context_text = f"REAL-TIME WEB DATA:\n{search_context}"
         else:
             context_text = "Warning: Web search failed. Use internal knowledge."
-        # -----------------------------------------------------------------------
-        
+            
         prompt = f"""
         You are BankBuddy, an expert Indian Banking AI Agent.
         USER QUESTION: {user_query}
@@ -83,9 +94,6 @@ def get_gemini_response(user_query, search_context, api_key):
 # --- MAIN PAGE ---
 st.header("Compare Savings, Loans & FDs 📊")
 
-if not api_key:
-    st.warning("⚠️ Please enter your Google API Key in the Sidebar to start.")
-
 # Display History
 for msg in st.session_state.chat_history:
     with st.chat_message(msg["role"]):
@@ -101,7 +109,7 @@ if user_input:
     
     if not api_key:
         with st.chat_message("assistant"):
-            st.error("I need an API Key to answer. Please check the sidebar.")
+            st.error("⚠️ API Key missing. Please check the sidebar settings.")
     else:
         with st.chat_message("assistant"):
             with st.spinner("Checking official bank rates..."):
