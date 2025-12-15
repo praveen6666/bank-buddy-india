@@ -2,5 +2,6 @@ streamlit
 langchain
 langchain-google-genai
 langchain-community
-duckduckgo-search
+duckduckgo-search>=5.3.0
 google-generativeai
+pydantic
