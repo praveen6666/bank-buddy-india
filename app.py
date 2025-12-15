@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. CLEAN PROFESSIONAL CSS (No clutter) ---
+# --- 2. CSS STYLING ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
@@ -28,18 +28,15 @@ st.markdown("""
         margin-bottom: 25px;
     }
     .header-title { font-size: 2.5rem; font-weight: 800; margin: 0; }
+    .header-subtitle { color: #cbd5e1; font-size: 1.1rem; }
     
-    /* Clean Table Styling */
     table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 20px 0; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; background: white; }
     thead tr { background-color: #1e3a8a; color: white; text-align: left; }
     th { padding: 15px; font-weight: 600; text-transform: uppercase; font-size: 0.85rem; }
     td { padding: 15px; border-bottom: 1px solid #f1f5f9; color: #334155; }
-    
-    /* Rank 1 Highlight */
     tbody tr:first-child { background-color: #fffbeb !important; }
     tbody tr:first-child td { color: #b45309; font-weight: 700; }
     
-    /* Hide Streamlit Footer */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -60,41 +57,52 @@ else:
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# --- 4. ADVANCED SEARCH (PDF & DOC READER) ---
+# --- 4. TIME-AWARE SEARCH ENGINE ---
 def search_web(query):
     ddgs = DDGS()
-    today = datetime.date.today().strftime("%Y") # Get current year
     
-    # 1. PDF SEARCH STRATEGY
-    # Banks upload rates in PDF. We explicitly target these files.
-    # We strip the "Get latest..." noise from query to make it sharp.
-    clean_query = query.replace("Get latest", "").replace("official", "").strip()
+    # Get Current Timeline (e.g., "December 2025")
+    now = datetime.datetime.now()
+    current_month_year = now.strftime("%B %Y")
+    current_year = now.strftime("%Y")
     
-    # Query A: Look for PDFs on official domains
-    pdf_query = f"{clean_query} interest rates {today} filetype:pdf site:sbi.co.in OR site:hdfcbank.com OR site:icicibank.com OR site:bankofbaroda.in"
+    # 1. STRICT FRESHNESS QUERY
+    # We force the search engine to look for the CURRENT Month/Year text on the page.
+    # We restrict official domains.
+    fresh_query = f"{query} interest rates {current_month_year} site:co.in OR site:bank"
     
-    # Query B: Look for 'Interest Rate' pages
-    general_query = f"{clean_query} interest rates table india {today} site:co.in OR site:bank"
+    # 2. NEWS QUERY (For Revision Announcements)
+    news_query = f"{query} rate hike {current_month_year} India"
 
-    search_data = ""
-    
+    search_results = []
+
     try:
-        # Run PDF Search
-        results_pdf = ddgs.text(pdf_query, region='in-en', max_results=4)
-        if results_pdf:
-            search_data += "\n".join([f"- [PDF EXTRACT] {r['title']}: {r['body']}" for r in results_pdf])
+        # SEARCH 1: TEXT with 'w' (Past Week) limit
+        # This is the key fix. It forces data indexed in the last 7 days.
+        results = ddgs.text(fresh_query, region='in-en', max_results=5, timelimit='w')
+        if results:
+            search_results.append("\n".join([f"- [LATEST UPDATE] {r['title']}: {r['body']}" for r in results]))
     except:
         pass
 
     try:
-        # Run General Search
-        results_gen = ddgs.text(general_query, region='in-en', max_results=4)
-        if results_gen:
-            search_data += "\n" + "\n".join([f"- [WEB DATA] {r['title']}: {r['body']}" for r in results_gen])
+        # SEARCH 2: NEWS (Always fresh)
+        results = ddgs.news(news_query, region='in-en', max_results=3)
+        if results:
+            search_results.append("\n".join([f"- [NEWS] {r['title']}: {r['body']}" for r in results]))
     except:
         pass
         
-    return search_data if search_data else None
+    if not search_results:
+        # Fallback: Try "Past Month" if "Past Week" failed
+        try:
+            results = ddgs.text(f"{query} rates {current_year} India", region='in-en', max_results=5, timelimit='m')
+            if results:
+                search_results.append("\n".join([f"- [MONTHLY DATA] {r['title']}: {r['body']}" for r in results]))
+        except:
+            pass
+
+    return "\n".join(search_results) if search_results else None
 
 # --- 5. AI ENGINES ---
 def ask_google(prompt, api_key):
@@ -116,95 +124,35 @@ def ask_opensource(prompt, token=None):
     except:
         return None
 
-# --- 6. STEALTH FALLBACK (Invisible "Busy" Mode) ---
-def get_stealth_fallback(query):
-    """
-    If APIs fail, this provides data WITHOUT saying 'System Busy'.
-    It pretends to be the live result.
-    """
-    today = datetime.date.today().strftime("%d %B %Y")
-    q = query.lower()
-    
-    if "fd" in q or "fixed" in q:
-        return f"""
-        **Latest Market Analysis ({today})**
-        
-        Based on the latest available documents, here is the ranking for **Fixed Deposits (1 Year)**:
-        
-        | Rank 🏆 | Bank Name | Interest Rate (Regular) | Senior Citizen | Verdict |
-        |---|---|---|---|---|
-        | 1 | **IDFC First Bank** | **7.50%** | **8.00%** | ✅ Top Pick |
-        | 2 | IndusInd Bank | 7.40% | 7.90% | High Yield |
-        | 3 | Kotak Mahindra | 7.10% | 7.60% | Solid Choice |
-        | 4 | SBI | 6.80% | 7.30% | Most Trusted |
-        | 5 | HDFC Bank | 6.60% | 7.10% | Secure |
-        """
-        
-    elif "home" in q or "housing" in q:
-        return f"""
-        **Latest Market Analysis ({today})**
-        
-        Current verified rates for **Home Loans (Floating)**:
-        
-        | Rank 🏆 | Bank Name | Interest Rate (From) | Processing Fee | Verdict |
-        |---|---|---|---|---|
-        | 1 | **SBI** | **8.50%** | Nil (Offer) | ✅ Lowest Rate |
-        | 2 | HDFC Bank | 8.55% | ₹3,000+ | Fast Approval |
-        | 3 | Bank of Baroda | 8.60% | Varies | Gov. Backed |
-        | 4 | ICICI Bank | 8.75% | 0.50% | Digital |
-        """
-        
-    elif "saving" in q:
-        return f"""
-        **Latest Market Analysis ({today})**
-        
-        Highest paying **Savings Accounts**:
-        
-        | Rank 🏆 | Bank Name | Rate (Up to) | Min Balance | Verdict |
-        |---|---|---|---|---|
-        | 1 | **IDFC First** | **7.00%** | ₹10k - ₹25k | ✅ Monthly Interest |
-        | 2 | IndusInd | 6.75% | ₹10,000 | Good Return |
-        | 3 | Kotak | 4.00% | ₹10,000 | ActivMoney |
-        | 4 | SBI | 2.70% | ₹0 | Standard |
-        """
-        
-    else:
-        return f"""
-        **Latest Market Analysis ({today})**
-        
-        | Category | Best Bank Option | Rate |
-        |---|---|---|
-        | **FD (1 Yr)** | IDFC First | 7.50% |
-        | **Home Loan** | SBI | 8.50% |
-        | **Car Loan** | SBI | 8.85% |
-        | **Personal** | HDFC Bank | 10.50% |
-        """
-
-# --- 7. MASTER LOGIC ---
+# --- 6. MASTER LOGIC ---
 def get_best_response(user_query, google_key, hf_key):
-    # 1. Search (Including PDFs)
+    # 1. Search Web (With Time Filter)
     search_context = search_web(user_query)
-    today_date = datetime.date.today().strftime("%d %B %Y")
+    today_date = datetime.datetime.now().strftime("%d %B %Y")
     
-    # 2. Build Prompt (No "Busy" language)
+    # 2. Build Prompt
     if search_context:
-        context_msg = f"EXTRACTED DATA FROM BANK DOCUMENTS/PDFs ({today_date}):\n{search_context}"
+        context_msg = f"FRESH WEB DATA ({today_date}):\n{search_context}"
+        fallback_instruction = ""
     else:
-        # Trick: If search fails, we tell AI to use its massive training data as if it were live.
-        context_msg = "Search cache empty. Use your internal database of 2024/2025 Indian bank rates to generate the table."
+        # IMPORTANT: If search fails, do NOT use hardcoded numbers. 
+        # Tell AI to estimate ranges based on market knowledge.
+        context_msg = "Live search blocked. Use your internal knowledge of Late 2024/2025 market standards."
+        fallback_instruction = "Since live data is missing, provide EXPECTED RATE RANGES (e.g., '8.50% - 9.00%') instead of exact numbers to avoid misleading the user."
 
     prompt = f"""
     Act as BankBuddy India.
-    DATE: {today_date}
+    CURRENT DATE: {today_date}
     USER QUERY: {user_query}
     DATA: {context_msg}
     
     INSTRUCTIONS:
     1. **Rank the banks** in a clean Markdown Table.
-    2. **Loans:** Sort Low to High. **Savings:** Sort High to Low.
-    3. **Official Data Only:** Use the rates from the provided data.
-    4. **CLEAN UI:** Do not mention "I searched" or "I found". Just present the analysis.
-    5. **NO LINKS:** Do not show URLs.
+    2. **Freshness Check:** Look for dates in the data. If data mentions {today_date.split()[-1]} (Current Year), prioritize it.
+    3. **Official Data:** Use the exact rates found in the text.
+    4. **Loans:** Sort Low to High. **Savings:** Sort High to Low.
+    5. **Clean UI:** No URLs in the table.
+    6. {fallback_instruction}
     """
     
     # 3. Try Google
@@ -216,10 +164,16 @@ def get_best_response(user_query, google_key, hf_key):
     res = ask_opensource(prompt, hf_key)
     if res: return res
 
-    # 5. FINAL RESORT: STEALTH FALLBACK (Looks real, never says "Busy")
-    return get_stealth_fallback(user_query)
+    # 5. Last Resort (Safe Message)
+    return """
+    ⚠️ **Live Data Unavailable**
+    
+    I am currently unable to verify the *exact* rates for today due to network restrictions.
+    
+    To avoid showing you old data, please check the official websites directly.
+    """
 
-# --- 8. UI ---
+# --- 7. UI ---
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
     if not google_key:
@@ -238,7 +192,7 @@ with st.sidebar:
 st.markdown("""
 <div class="header-container">
     <div class="header-title">BankBuddy India 🇮🇳</div>
-    <div class="header-subtitle">Official Bank Rate Analyzer</div>
+    <div class="header-subtitle">Real-Time Fresh Data (Past Week)</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -251,8 +205,8 @@ for msg in st.session_state.chat_history:
 # Input
 user_input = None
 col1, col2, col3, col4 = st.columns(4)
-if col1.button("🏆 FD Rates"): user_input = "Get latest FD rates from official sbi.co.in, hdfcbank.com, icicibank.com"
-if col2.button("🏠 Home Loans"): user_input = "Get latest Home Loan rates from official bankofbaroda.in, sbi.co.in, hdfcbank.com"
+if col1.button("🏆 FD Rates"): user_input = "Get latest FD rates for 1 year from sbi.co.in, hdfcbank.com, icicibank.com"
+if col2.button("🏠 Home Loans"): user_input = "Get latest Home Loan rates from bankofbaroda.in, sbi.co.in, hdfcbank.com"
 if col3.button("🚗 Car Loans"): user_input = "Get latest Car Loan rates from official bank websites"
 if col4.button("🏦 Savings"): user_input = "Get latest Savings Account rates from official bank websites"
 
@@ -265,8 +219,7 @@ if user_input:
     st.session_state.chat_history.append({"role": "user", "content": user_input})
     
     with st.chat_message("assistant", avatar="🏦"):
-        # Changed spinner text to be generic and professional
-        with st.spinner("Analyzing official bank documents..."):
+        with st.spinner(f"Scanning for data updates (Last 7 Days)..."):
             response = get_best_response(user_input, google_key, hf_token)
             st.markdown(response)
             st.session_state.chat_history.append({"role": "assistant", "content": response})
