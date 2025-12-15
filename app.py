@@ -12,50 +12,52 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. CUSTOM CSS ---
+# --- 2. ATTRACTIVE UI CSS ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     .stApp { background-color: #f8fafc; }
     
-    /* Header */
+    /* Header Styling */
     .header-container {
-        background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%);
-        padding: 25px;
+        background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+        padding: 30px;
         border-radius: 15px;
         color: white;
         text-align: center;
         margin-bottom: 25px;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
     }
-    .header-title { font-size: 2.5rem; font-weight: 800; margin: 0; letter-spacing: -1px; }
-    .header-subtitle { font-size: 1.1rem; opacity: 0.9; margin-top: 8px; font-weight: 400; }
+    .header-title { font-size: 2.5rem; font-weight: 800; margin: 0; letter-spacing: -0.5px; }
+    .header-subtitle { font-size: 1.1rem; opacity: 0.95; margin-top: 10px; font-weight: 400; }
 
-    /* Tables - Rank Wise Styling */
+    /* Ranked Table Styling */
     table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 20px 0; border-radius: 12px; overflow: hidden; box-shadow: 0 5px 15px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+    
+    /* Header Row */
     thead tr { background-color: #1e3a8a; color: white; text-align: left; }
     th { padding: 15px; font-weight: 600; text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.5px; }
-    td { padding: 15px; border-bottom: 1px solid #f1f5f9; color: #334155; }
-    tbody tr:nth-of-type(even) { background-color: #f8fafc; }
-    tbody tr:hover { background-color: #f1f5f9; transition: 0.2s; }
     
-    /* Gold Color for Rank 1 */
-    tbody tr:first-child td { font-weight: bold; color: #1e3a8a; background-color: #fffbeb; border-left: 5px solid #fbbf24; }
+    /* Data Rows */
+    td { padding: 15px; border-bottom: 1px solid #f1f5f9; color: #334155; font-size: 0.95rem; }
+    tbody tr:nth-of-type(even) { background-color: #f8fafc; }
+    
+    /* RANK 1 HIGHLIGHT (Gold Standard) */
+    tbody tr:first-child { background-color: #fffbeb !important; }
+    tbody tr:first-child td { color: #b45309; font-weight: 700; border-bottom: 1px solid #fcd34d; }
+    tbody tr:first-child td:first-child { border-left: 5px solid #fbbf24; }
 
-    /* Chat Bubbles */
-    .stChatMessage { background: white; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
-
-    /* Remove Default Elements */
+    /* Hide Streamlit Elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. API & LOGIC ---
+# --- 3. LOGIC & API ---
 
-# Check Secrets
+# Secrets Management
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
     has_secret_key = True
@@ -67,12 +69,9 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 def search_web(query):
-    """
-    Fetches more results (max_results=6) to allow better ranking.
-    """
     try:
-        # We append 'comparison table' to hint the search engine we want lists
-        search_query = f"{query} comparison table interest rates india top banks 2025"
+        # We specifically ask for a 'list' to get rankable data
+        search_query = f"{query} list of interest rates india banks comparison 2025"
         results = DDGS().text(search_query, region='in-en', max_results=6, timelimit='m')
         if results:
             return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
@@ -80,118 +79,123 @@ def search_web(query):
     except:
         return None
 
-def get_best_model(api_key):
-    try:
-        genai.configure(api_key=api_key)
-        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        preferences = ["models/gemini-1.5-flash", "models/gemini-1.5-flash-001", "models/gemini-1.5-pro", "models/gemini-pro"]
-        for p in preferences:
-            if p in models: return p
-        return models[0] if models else "models/gemini-pro"
-    except:
-        return "models/gemini-pro"
-
 def get_gemini_response(user_query, search_context, api_key):
-    model_name = get_best_model(api_key)
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name)
     
     context = f"WEB DATA:\n{search_context}" if search_context else "Web search failed. Use internal knowledge."
     
-    # --- INTELLIGENT RANKING PROMPT ---
+    # --- PROMPT: FORCING AUTOMATIC RANKING ---
     prompt = f"""
-    You are BankBuddy, India's Best Financial AI.
+    You are BankBuddy, a Data-Driven Financial Analyst.
+    
     USER QUERY: {user_query}
-    {context}
+    LATEST DATA: {context}
     
-    MANDATORY INSTRUCTIONS:
-    1. **RANKING:** If the user asks to compare "all" or multiple banks, you MUST provide a Ranked Table.
-       - **For Savings/FDs:** Rank #1 is the HIGHEST Interest Rate.
-       - **For Loans:** Rank #1 is the LOWEST Interest Rate.
+    ### STRICT SORTING & RANKING RULES:
+    1. **AUTOMATIC SORTING:** You MUST sort the table rows based on "User Benefit".
+       - **Savings / FD / RD:** Sort High to Low (Highest Rate = Rank 1).
+       - **Loans / Credit Cards:** Sort Low to High (Lowest Rate = Rank 1).
+       
+    2. **TABLE STRUCTURE:** 
+       The first column MUST be **"Rank"**.
+       | Rank 🏆 | Bank Name | Interest Rate | Key Feature / Processing Fee |
+       |---------|-----------|---------------|------------------------------|
+       | 1       | ...       | ...           | ...                          |
+       | 2       | ...       | ...           | ...                          |
     
-    2. **SCOPE:** If "all banks" is asked, limit comparison to these Top 7:
-       - SBI, HDFC, ICICI, Axis, Kotak, IDFC First, PNB.
+    3. **DATA SCOPE:** 
+       - If the user asks generally (e.g. "Best Home Loan"), include the top 5-7 major banks (SBI, HDFC, ICICI, Axis, Kotak, BOB, PNB).
+       - If specific banks are named, rank only those.
     
-    3. **TABLE FORMAT:**
-       | Rank 🏆 | Bank Name | Rate (%) | Key Feature/Processing Fee |
-       |---------|-----------|----------|----------------------------|
-       | 1       | ...       | ...      | ...                        |
-    
-    4. **VERDICT:** End with a bold "Winner" recommendation based on the data.
+    4. **NO FILLER:** Do not write long introductions. Go straight to the Ranking Table.
     """
     
-    # Retry Logic for Rate Limits
-    max_retries = 3
-    for attempt in range(max_retries):
+    # --- ROBUST RETRY LOGIC (ANTI-CRASH) ---
+    # Rotates through models to find one that isn't busy
+    model_list = [
+        "models/gemini-1.5-flash", 
+        "models/gemini-1.5-flash-001", 
+        "models/gemini-1.5-flash-8b",
+        "models/gemini-1.5-pro",
+        "models/gemini-pro"
+    ]
+    
+    for attempt in range(5):
         try:
+            # Pick a model based on attempt number
+            current_model = model_list[attempt % len(model_list)]
+            model = genai.GenerativeModel(current_model)
             response = model.generate_content(prompt)
             return response.text
         except Exception as e:
-            if "429" in str(e):
-                time.sleep(5 + (attempt * 5))
+            error_msg = str(e)
+            # Handle Traffic Limits
+            if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg:
+                time.sleep(3 + (attempt * 2)) # Wait 3s, 5s, 7s...
                 continue
-            return f"Error: {str(e)}"
-    return "⚠️ Server busy. Please try again in 30 seconds."
+            return f"Error: {error_msg}"
+            
+    return "⚠️ High Traffic: Google's AI servers are busy. Please wait 30 seconds and try again."
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
     if not has_secret_key:
         api_key = st.text_input("🔑 API Key", type="password")
-        st.markdown("[Get Free Key](https://aistudio.google.com/app/apikey)")
+        st.caption("Enter key to start.")
     else:
-        st.success("✅ Connected")
+        st.success("✅ Secure Connection")
     
     st.markdown("---")
     if st.button("🗑️ New Chat"):
         st.session_state.chat_history = []
         st.rerun()
 
-# --- 5. MAIN UI ---
+# --- 5. MAIN INTERFACE ---
 st.markdown("""
 <div class="header-container">
     <div class="header-title">BankBuddy India 🇮🇳</div>
-    <div class="header-subtitle">Rank-wise Comparisons for Loans, FDs & Savings</div>
+    <div class="header-subtitle">AI-Powered Rank & Comparison Engine</div>
 </div>
 """, unsafe_allow_html=True)
 
-# Quick Actions
+# Quick Start Buttons
 if not st.session_state.chat_history:
     col1, col2, col3, col4 = st.columns(4)
-    prompt = None
-    # Updated buttons to trigger ranking
-    if col1.button("🏆 Rank FD Rates"): prompt = "Rank top 7 Indian banks by highest FD rates for 1 year tenure"
-    if col2.button("🏠 Home Loan Rank"): prompt = "Compare and rank Home Loan rates of SBI, HDFC, ICICI, Axis"
-    if col3.button("🚗 Car Loan Rank"): prompt = "Rank banks offering lowest Car Loan interest rates in India"
-    if col4.button("🏦 Savings Rank"): prompt = "Rank IDFC, Kotak, SBI, and HDFC by Savings Account interest rates"
     
-    if prompt:
-        st.session_state.chat_history.append({"role": "user", "content": prompt})
-        with st.chat_message("user", avatar="👤"): st.write(prompt)
+    q = None
+    if col1.button("🏆 Best FD Rates"): q = "Rank top 8 Indian banks by highest 1-Year FD interest rates"
+    if col2.button("🏠 Home Loan Rank"): q = "Rank SBI, HDFC, ICICI, Axis, and Kotak by lowest Home Loan rates"
+    if col3.button("🚗 Car Loan Rank"): q = "Rank banks offering the cheapest Car Loans in India right now"
+    if col4.button("🏦 Savings Rank"): q = "Rank top banks by highest Savings Account Interest Rates"
+    
+    if q:
+        st.session_state.chat_history.append({"role": "user", "content": q})
+        with st.chat_message("user", avatar="👤"): st.write(q)
         if api_key:
             with st.chat_message("assistant", avatar="🏦"):
-                with st.spinner("Analyzing & Ranking Banks..."):
-                    data = search_web(prompt)
-                    res = get_gemini_response(prompt, data, api_key)
+                with st.spinner("Analyzing market data & Ranking..."):
+                    data = search_web(q)
+                    res = get_gemini_response(q, data, api_key)
                     st.markdown(res)
                     st.session_state.chat_history.append({"role": "assistant", "content": res})
 
-# Chat Loop
+# Chat History Display
 for msg in st.session_state.chat_history:
     avatar = "👤" if msg["role"] == "user" else "🏦"
     with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])
 
-# Input
-if user_input := st.chat_input("Ex: 'Rank all banks for Personal Loan rates'"):
+# User Input
+if user_input := st.chat_input("Ex: 'Compare Personal Loan rates of all banks'"):
     st.session_state.chat_history.append({"role": "user", "content": user_input})
     with st.chat_message("user", avatar="👤"): st.write(user_input)
     
     if not api_key:
-        st.error("Please enter API Key.")
+        st.error("⚠️ Please enter API Key.")
     else:
         with st.chat_message("assistant", avatar="🏦"):
-            with st.spinner("Gathering data & Calculating ranks..."):
+            with st.spinner("Checking rates & Ranking results..."):
                 data = search_web(user_input)
                 res = get_gemini_response(user_input, data, api_key)
                 st.markdown(res)
