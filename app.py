@@ -1,6 +1,4 @@
 import streamlit as st
-import os
-import time
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage
@@ -28,37 +26,51 @@ with st.sidebar:
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
+def get_working_llm(api_key):
+    """
+    Tries different Google models to find one that works for the user's key.
+    """
+    # List of models to try in order of preference
+    models_to_try = [
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash-001",
+        "gemini-pro",
+        "gemini-1.0-pro"
+    ]
+    
+    for model_name in models_to_try:
+        try:
+            llm = ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, temperature=0.3)
+            # Test the model with a tiny query to see if it connects
+            llm.invoke("test")
+            return llm
+        except Exception:
+            continue # Try the next model
+            
+    return None # None worked
+
 def get_response(query, api_key):
     if not api_key:
         return "Please enter your API Key in the sidebar."
     
-    # --- MODEL SELECTION FIX ---
-    # We use 'gemini-1.5-flash-001' (Specific version) or 'gemini-pro' (Stable)
-    # The error happened because generic 'gemini-1.5-flash' alias sometimes fails on free tier
-    try:
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash-001", 
-            google_api_key=api_key, 
-            temperature=0.3
-        )
-    except Exception:
-        # Fallback to the classic Gemini Pro if Flash fails
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-pro", 
-            google_api_key=api_key, 
-            temperature=0.3
-        )
+    # 1. Find a working Model
+    llm = get_working_llm(api_key)
+    
+    if not llm:
+        return "Error: Could not connect to any Google Gemini model. Please check if your API Key is valid."
 
-    # --- SAFE SEARCH SETUP ---
+    # 2. Safe Search
     search_data = "Search unavailable (Using internal knowledge)."
     try:
         from langchain_community.tools import DuckDuckGoSearchResults
         search = DuckDuckGoSearchResults(backend="news")
+        # Limit search to India
         search_data = search.run(f"{query} interest rates india official bank sites 2025")
     except Exception as e:
         print(f"Search failed: {e}")
 
-    # --- PROMPT ---
+    # 3. Generate Answer
     template = """
     You are BankBuddy, an Indian banking expert.
     
@@ -81,7 +93,7 @@ def get_response(query, api_key):
         response = chain.invoke({"input": query, "context": search_data})
         return response.content
     except Exception as e:
-        return f"Error: {str(e)}. Please try checking your API Key."
+        return f"An error occurred: {str(e)}"
 
 # --- UI ---
 st.header("Compare Savings, Loans & FDs 📊")
@@ -100,7 +112,7 @@ if user_input:
         st.write(user_input)
     
     with st.chat_message("assistant"):
-        with st.spinner("Analyzing bank rates..."):
+        with st.spinner("Analyzing bank rates (Connecting to Google AI)..."):
             response = get_response(user_input, api_key)
             st.markdown(response)
             st.session_state.chat_history.append({"role": "assistant", "content": response})
